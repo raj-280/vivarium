@@ -1,0 +1,175 @@
+app:
+  name: vivarium-monitor
+  env: local
+  log_level: INFO
+
+logging:
+  format: json                   # json | text
+  sink: stdout                   # stdout | file | loki
+  file_path: ./logs/vivarium.log
+  loki_url: null
+  rotate_mb: 10
+  retain_days: 7
+
+pipeline:
+  stages:
+    - preprocessor
+    - detector
+    - gate
+    - measurers
+    - aggregator
+    - threshold_engine
+    - notifier
+    - storage
+
+targets:
+  enabled:
+    - water
+    - food
+    - mouse
+
+input:
+  source: api_upload             # api_upload | webhook | folder_watch
+  folder_watch_path: ./incoming
+  folder_watch_interval_seconds: 30
+  webhook_secret: null
+  max_image_size_mb: 10
+  allowed_formats: [jpg, jpeg, png, webp]
+
+preprocessor:
+  resize_to: [640, 640]
+  blur_threshold: 80
+  normalize: true
+  save_preprocessed: false
+
+detector:
+  engine: yolov8world            # yolov8world | groundingdino
+  model_path: ./models/weights/yolov8x-world.pt
+  device: cpu                    # cpu | cuda | mps
+  min_confidence: 0.45
+  prompts:
+    water: "water bottle with liquid inside"
+    food: "food pile in a feeding tray"
+    mouse: "small white mouse on white bedding"
+
+gate:
+  enabled: true
+  min_box_aspect_ratio: 1.4
+  min_visible_area_ratio: 0.30
+  max_edge_proximity_ratio: 0.05
+
+water:
+  engine: clip                   # clip | opencv | classifier
+  model_path: null
+  clip_model: ViT-B/32
+  clip_labels:
+    - "water bottle completely filled to the top with clear liquid"
+    - "water bottle three quarters filled with water"
+    - "water bottle half filled with water level at midpoint"
+    - "water bottle one quarter filled low water level"
+    - "empty water bottle no liquid inside"
+  level_map:
+    0: 100
+    1: 75
+    2: 50
+    3: 25
+    4: 0
+  min_measurement_confidence: 0.65
+  opencv:
+    edge_method: canny
+    canny_threshold1: 50
+    canny_threshold2: 150
+    enable_horizontal_line_detection: true
+    horizontal_threshold_px: 10
+
+food:
+  engine: clip                   # clip | opencv | classifier
+  model_path: null
+  clip_model: ViT-B/32
+  clip_labels:
+    - "feeding tray overflowing with pellets full food"
+    - "feeding tray half filled with pellets adequate food"
+    - "feeding tray with sparse pellets running low"
+    - "empty feeding tray no pellets visible"
+  level_map:
+    0: 100
+    1: 50
+    2: 15
+    3: 0
+  min_measurement_confidence: 0.65
+
+mouse:
+  engine: yolo                   # yolo | clip | classifier
+  model_path: null
+  clip_model: ViT-B/32
+  clip_labels:
+    - "mouse visible in the cage"
+    - "no mouse visible in the cage"
+  presence_map:
+    0: true
+    1: false
+  min_consecutive_absent: 3
+
+thresholds:
+  water_low_pct: 25
+  food_low_pct: 20
+  mouse_missing_minutes: 60
+  confidence_min: 0.70
+
+notifiers:
+  enabled:
+    - telegram
+  cooldown_minutes: 30
+  require_consecutive_alerts: 2
+  voting_window_minutes: 5
+  templates:
+    water_low: "Water level is at {value}% — below {threshold}%. Please refill."
+    food_low: "Food level is at {value}% — below {threshold}%. Please top up."
+    mouse_missing: "Mouse not seen for {minutes} minutes. Please check the vivarium."
+    image_rejected: "Image rejected — {reason}. Please send a clearer photo."
+  telegram:
+    bot_token: ${TELEGRAM_BOT_TOKEN}
+    chat_id: ${TELEGRAM_CHAT_ID}
+    parse_mode: Markdown
+  email:
+    smtp_host: smtp.gmail.com
+    smtp_port: 587
+    use_tls: true
+    from: alerts@yourdomain.com
+    to: client@example.com
+    subject_prefix: "[Vivarium]"
+  webhook:
+    url: null
+    secret: null
+    method: POST
+    timeout_seconds: 5
+
+storage:
+  engine: postgres
+  image_store: local             # local | s3 | gcs
+  local_image_path: ./data/images
+  s3:
+    bucket: null
+    region: null
+    prefix: vivarium/images/
+  gcs:
+    bucket: null
+    prefix: vivarium/images/
+  postgres:
+    host: ${POSTGRES_HOST:-localhost}
+    port: ${POSTGRES_PORT:-5432}
+    db: ${POSTGRES_DB:-vivarium}
+    user: ${POSTGRES_USER:-vivarium_user}
+    password: ${POSTGRES_PASSWORD}
+    schema: public
+    pool_size: 5
+    pool_timeout_seconds: 30
+
+api:
+  host: 0.0.0.0
+  port: 8000
+  api_key: ${API_KEY}
+  rate_limit_per_minute: 30
+  cors_origins:
+    - "*"
+  response_include_image_path: false

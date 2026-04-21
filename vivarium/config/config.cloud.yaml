@@ -1,0 +1,22 @@
+app:
+  env: cloud
+  log_level: INFO
+
+logging:
+  format: json
+  sink: loki
+  loki_url: ${LOKI_URL}
+
+detector:
+  device: cuda
+
+storage:
+  image_store: s3
+  s3:
+    bucket: ${S3_BUCKET}
+    region: ${AWS_REGION}
+    prefix: vivarium/images/
+
+api:
+  cors_origins:
+    - "https://yourdomain.com"

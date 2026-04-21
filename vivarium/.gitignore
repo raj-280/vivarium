@@ -1,0 +1,42 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+env/
+.env
+.venv/
+env.bak/
+venv.bak/
+
+# Environment Variables
+.env
+
+# Configuration overrides
+config.local.yaml
+
+# Data and logs
+logs/
+data/
+
+# Model weights
+models/weights/*.pt
+models/weights/*.pth
+models/weights/*.onnx
+models/weights/*.bin
+
+# Pytest
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# MacOS
+.DS_Store
