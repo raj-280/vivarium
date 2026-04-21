@@ -44,8 +44,8 @@ CREATE INDEX IF NOT EXISTS idx_pipeline_results_mouse_present
 -- =========================================================================
 CREATE TABLE IF NOT EXISTS alert_log (
     id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    target           TEXT             NOT NULL,  -- water | food | mouse | image
-    alert_type       TEXT             NOT NULL,  -- low | missing | rejected
+    target           TEXT             NOT NULL,
+    alert_type       TEXT             NOT NULL,
     value            FLOAT,
     message          TEXT             NOT NULL,
     notifiers_fired  TEXT[]           DEFAULT '{}',
@@ -76,3 +76,19 @@ INSERT INTO cooldown_state (target, last_alert_at)
         ('mouse', '2000-01-01 00:00:00+00'),
         ('image', '2000-01-01 00:00:00+00')
     ON CONFLICT (target) DO NOTHING;
+
+-- =========================================================================
+-- Table: threshold_breaches
+-- FIX 3: Added to support the voting system in CooldownManager.
+-- Records every image where a target's value was below threshold.
+-- count_recent_threshold_breaches() queries this table to require
+-- N consecutive breaches before an alert is fired.
+-- =========================================================================
+CREATE TABLE IF NOT EXISTS threshold_breaches (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    target      TEXT NOT NULL,
+    breached_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_threshold_breaches_target_time
+    ON threshold_breaches (target, breached_at DESC);

@@ -2,20 +2,17 @@
 pipeline/orchestrator.py
 
 The pipeline orchestrator. Reads pipeline.stages from config and runs each
-stage in sequence. All steps are defined in the FLOW doc-comment below.
+stage in sequence.
 
-Step 1  — Image validation (format, size, blur)
-Step 2  — Preprocessing (resize + normalize)
-Step 3  — Detector (factory → YOLOv8World | GroundingDINO)
-Step 4  — Confidence + Angle Gate (per bounding box checks)
-Step 5  — Measurers (one per enabled target, each factory-driven)
-Step 6  — Result Aggregator (builds PipelineResult, saves to DB)
-Step 7  — Threshold Engine (check thresholds, fire notifiers)
-Step 8  — Storage (save image, update DB record)
+FIXES APPLIED:
+  FIX 6: Added public get_results() method so routes never touch _storage directly.
+  FIX 7: Replaced datetime.utcnow() with datetime.now(tz=timezone.utc) throughout.
 """
 
 from __future__ import annotations
 
+from datetime import timezone
+from datetime import datetime
 from typing import Dict, List, Optional
 
 import numpy as np
@@ -67,22 +64,17 @@ class PipelineOrchestrator:
         """Load all models and establish DB connection."""
         logger.info("Pipeline startup — loading models and connecting to DB")
 
-        # Load detector
         self._detector.load()
 
-        # Load measurers for each enabled target
         for target in self._targets:
             measurer = MeasurerFactory.create(self.config, target)
             measurer.load()
             self._measurers[target] = measurer
 
-        # Create notifiers
         self._notifiers = NotifierFactory.create_all(self.config)
 
-        # Connect to DB
         await self._storage.connect()
 
-        # Build threshold engine
         self._threshold_engine = ThresholdEngine(
             self.config, self._storage, self._notifiers
         )
@@ -97,6 +89,23 @@ class PipelineOrchestrator:
         """Disconnect from DB and release resources."""
         await self._storage.disconnect()
         logger.info("Pipeline shutdown complete")
+
+    # ------------------------------------------------------------------
+    # FIX 6: Public method so routes never access _storage directly
+    # ------------------------------------------------------------------
+    async def get_results(
+        self,
+        limit: int = 20,
+        offset: int = 0,
+        target: Optional[str] = None,
+    ) -> List[dict]:
+        """
+        Public proxy to storage.get_results().
+        Routes must call this — never access orchestrator._storage directly.
+        """
+        return await self._storage.get_results(
+            limit=limit, offset=offset, target=target
+        )
 
     async def run(self, image_bytes: bytes, filename: str) -> PipelineResult:
         """
@@ -121,7 +130,6 @@ class PipelineOrchestrator:
                 rejection_reason=exc.reason,
                 uncertain_targets=list(self._targets),
             )
-            # Fire image_rejected alert
             if self._threshold_engine:
                 await self._threshold_engine.fire_image_rejected(exc.reason)
             return result
@@ -146,7 +154,6 @@ class PipelineOrchestrator:
                     gated[target] = None
                     continue
 
-                # Confidence check
                 if bbox.confidence < float(self.config.detector.min_confidence):
                     logger.debug(
                         f"Gate [{target}]: conf {bbox.confidence:.3f} < "
@@ -156,7 +163,6 @@ class PipelineOrchestrator:
                     gated[target] = None
                     continue
 
-                # Aspect ratio check
                 if bbox.aspect_ratio < float(self.config.gate.min_box_aspect_ratio):
                     logger.debug(
                         f"Gate [{target}]: aspect_ratio {bbox.aspect_ratio:.2f} < "
@@ -166,7 +172,6 @@ class PipelineOrchestrator:
                     gated[target] = None
                     continue
 
-                # Visible area check
                 if bbox.area_ratio < float(self.config.gate.min_visible_area_ratio):
                     logger.debug(
                         f"Gate [{target}]: area_ratio {bbox.area_ratio:.4f} < "
@@ -176,7 +181,6 @@ class PipelineOrchestrator:
                     gated[target] = None
                     continue
 
-                # Edge proximity check
                 edge_prox = float(self.config.gate.max_edge_proximity_ratio)
                 if bbox.is_near_edge(edge_prox):
                     logger.debug(f"Gate [{target}]: too close to image edge — uncertain")
@@ -197,9 +201,8 @@ class PipelineOrchestrator:
             raw_detections[target] = bbox.to_dict() if bbox else None
 
             if bbox is None:
-                continue  # skip measurement for uncertain targets
+                continue
 
-            # Crop ROI from bounding box (convert normalised to pixel coords)
             x1 = int(bbox.x1 * w)
             y1 = int(bbox.y1 * h)
             x2 = int(bbox.x2 * w)
@@ -220,7 +223,7 @@ class PipelineOrchestrator:
                 meas = measurer.measure(roi)
                 measurements[target] = meas
                 logger.info(
-                    f"Measurement [{target}]: level={meas.level:.1f} "
+                    f"Measurement [{target}]: level={meas.level} "
                     f"conf={meas.confidence:.3f} label='{meas.label}'"
                 )
             except Exception as exc:
@@ -240,7 +243,6 @@ class PipelineOrchestrator:
             success=True,
         )
 
-        # Persist to DB
         result_id = await self._storage.save_result(result)
         result.result_id = result_id
 
@@ -251,8 +253,6 @@ class PipelineOrchestrator:
         # --- Step 8: Image storage ---
         stored_path = await self._image_store.save(image_bytes, filename)
         result.image_path = stored_path
-
-        # Update DB record with image path
         await self._storage.update_image_path(result_id, stored_path)
 
         logger.info(

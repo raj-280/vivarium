@@ -1,8 +1,13 @@
 """
 pipeline/storage/base.py
 
-Abstract base classes for database storage and image store.
-All concrete implementations must subclass these.
+Abstract base classes for all storage and image store implementations.
+
+FIX: Added two abstract methods required by the voting system in cooldown.py:
+     - count_recent_threshold_breaches(target, minutes) → int
+     - record_threshold_breach(target) → None
+     These were called in cooldown.py but never defined here or in postgres.py,
+     causing an AttributeError at runtime whenever require_consecutive_alerts > 1.
 """
 
 from __future__ import annotations
@@ -16,19 +21,19 @@ from core.result import AlertRecord, PipelineResult
 
 
 class BaseStorage(ABC):
-    """Abstract database storage — persists pipeline results and alerts."""
+    """Abstract storage — all DB backends must subclass this."""
 
     def __init__(self, config: DotMap) -> None:
         self.config = config
 
     @abstractmethod
     async def connect(self) -> None:
-        """Establish database connection / pool."""
+        """Establish the database connection / pool."""
         ...
 
     @abstractmethod
     async def disconnect(self) -> None:
-        """Close database connection / pool."""
+        """Close the database connection / pool."""
         ...
 
     @abstractmethod
@@ -79,6 +84,34 @@ class BaseStorage(ABC):
     @abstractmethod
     async def upsert_cooldown(self, target: str) -> None:
         """Update (or insert) the cooldown_state row for `target` to now()."""
+        ...
+
+    # ------------------------------------------------------------------
+    # FIX 3: Voting system methods — were called in cooldown.py but
+    # never defined in base or postgres, causing AttributeError at runtime.
+    # ------------------------------------------------------------------
+
+    @abstractmethod
+    async def record_threshold_breach(self, target: str) -> None:
+        """
+        Record a threshold breach event for `target`.
+
+        Called by the voting system every time a target's value is below
+        threshold. Used to count consecutive breaches within a time window.
+        """
+        ...
+
+    @abstractmethod
+    async def count_recent_threshold_breaches(
+        self, target: str, minutes: int
+    ) -> int:
+        """
+        Return the count of threshold breach events for `target`
+        recorded within the last `minutes` minutes.
+
+        Used by the voting system to require N consecutive breaches
+        before firing an alert.
+        """
         ...
 
 

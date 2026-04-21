@@ -99,7 +99,10 @@ food:
   min_measurement_confidence: 0.65
 
 mouse:
-  engine: yolo                   # yolo | clip | classifier
+  # FIX: was "yolo" — yolo is a detector engine, not a measurer engine.
+  # "yolo" was silently falling back to CLIP with no warning.
+  # Use "clip" for zero-shot mouse presence detection.
+  engine: clip                   # clip | classifier
   model_path: null
   clip_model: ViT-B/32
   clip_labels:

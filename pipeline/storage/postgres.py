@@ -3,12 +3,22 @@ pipeline/storage/postgres.py
 
 PostgreSQL async storage implementation using SQLAlchemy async + asyncpg.
 All connection parameters read from config.storage.postgres.
+
+FIXES APPLIED:
+  FIX 3: Implemented record_threshold_breach() and count_recent_threshold_breaches()
+          — both were called by cooldown.py voting system but never existed here,
+          causing AttributeError at runtime. Added threshold_breaches table to support them.
+          Also add the CREATE TABLE for threshold_breaches in the SQL migration note below.
+
+  FIX 7: Replaced all datetime.utcnow() with datetime.now(tz=timezone.utc).
+          utcnow() is deprecated in Python 3.12+ and returns a naive datetime
+          that causes subtle timezone comparison bugs in the cooldown logic.
 """
 
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 
 from dotmap import DotMap
@@ -18,7 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from core.result import AlertRecord, PipelineResult
 from pipeline.storage.base import BaseStorage
-from pipeline.storage.models import AlertLogModel, CooldownStateModel, PipelineResultModel
+from pipeline.storage.models import AlertLogModel, PipelineResultModel
 
 
 class PostgresStorage(BaseStorage):
@@ -78,7 +88,8 @@ class PostgresStorage(BaseStorage):
             mouse_confidence=result.mouse_confidence,
             uncertain_targets=result.uncertain_targets or [],
             raw_detections=result.raw_detections or {},
-            processed_at=result.timestamp,
+            # FIX 7: timezone-aware datetime
+            processed_at=datetime.now(tz=timezone.utc),
         )
         async with self._session() as session:
             session.add(row)
@@ -108,7 +119,6 @@ class PostgresStorage(BaseStorage):
         """Fetch pipeline_results rows as dicts, ordered by processed_at DESC."""
         async with self._session() as session:
             if target:
-                # Filter to rows where the target column is not null
                 col_map = {
                     "water": "water_pct",
                     "food": "food_pct",
@@ -131,7 +141,6 @@ class PostgresStorage(BaseStorage):
             rows = await session.execute(q, {"limit": limit, "offset": offset})
             results = [dict(row._mapping) for row in rows]
 
-        # Serialise UUIDs and datetimes
         for r in results:
             r["id"] = str(r["id"])
             if r.get("processed_at"):
@@ -147,7 +156,8 @@ class PostgresStorage(BaseStorage):
             value=alert.value,
             message=alert.message,
             notifiers_fired=alert.notifiers_fired or [],
-            fired_at=datetime.utcnow(),
+            # FIX 7: timezone-aware datetime
+            fired_at=datetime.now(tz=timezone.utc),
         )
         async with self._session() as session:
             session.add(row)
@@ -179,3 +189,55 @@ class PostgresStorage(BaseStorage):
             )
             await session.commit()
         logger.debug(f"Cooldown upserted for target={target}")
+
+    # ------------------------------------------------------------------
+    # FIX 3: Implement voting system methods — missing from original code
+    # These are called by CooldownManager.should_fire_with_voting()
+    # and CooldownManager.record_breach() in cooldown.py.
+    # Requires threshold_breaches table — see migration note below.
+    #
+    # Add this to your migrations/001_initial.sql (or create 002_voting.sql):
+    #
+    # CREATE TABLE IF NOT EXISTS threshold_breaches (
+    #     id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    #     target     TEXT NOT NULL,
+    #     breached_at TIMESTAMPTZ DEFAULT now()
+    # );
+    # CREATE INDEX IF NOT EXISTS idx_threshold_breaches_target_time
+    #     ON threshold_breaches (target, breached_at DESC);
+    # ------------------------------------------------------------------
+
+    async def record_threshold_breach(self, target: str) -> None:
+        """
+        Insert a threshold breach event for `target`.
+        Called by the voting system on every image where a target is below threshold.
+        """
+        async with self._session() as session:
+            await session.execute(
+                text(
+                    "INSERT INTO threshold_breaches (id, target, breached_at) "
+                    "VALUES (gen_random_uuid(), :target, now())"
+                ),
+                {"target": target},
+            )
+            await session.commit()
+        logger.debug(f"Threshold breach recorded for target={target}")
+
+    async def count_recent_threshold_breaches(
+        self, target: str, minutes: int
+    ) -> int:
+        """
+        Return count of breach events for `target` in the last `minutes` minutes.
+        Used by the voting system to require N consecutive breaches before alerting.
+        """
+        async with self._session() as session:
+            row = await session.execute(
+                text(
+                    "SELECT COUNT(*) FROM threshold_breaches "
+                    "WHERE target = :target "
+                    "AND breached_at >= now() - INTERVAL ':minutes minutes'"
+                ),
+                {"target": target, "minutes": minutes},
+            )
+            result = row.scalar()
+            return int(result or 0)

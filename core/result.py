@@ -3,12 +3,16 @@ core/result.py
 
 Shared PipelineResult dataclass. Every module that produces or consumes
 results must import from here — never define a parallel schema elsewhere.
+
+FIX 7: Replaced datetime.utcnow() with datetime.now(tz=timezone.utc).
+        utcnow() is deprecated in Python 3.12+ and returns a naive datetime
+        with no timezone info, causing subtle comparison failures in cooldown logic.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 
@@ -98,8 +102,10 @@ class PipelineResult:
     # Where the image was saved after pipeline completion
     image_path: Optional[str] = None
 
-    # Pipeline execution timestamp
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    # FIX 7: timezone-aware datetime — utcnow() deprecated in Python 3.12+
+    timestamp: datetime = field(
+        default_factory=lambda: datetime.now(tz=timezone.utc)
+    )
 
     # DB-assigned identifier (populated after persistence)
     result_id: Optional[str] = None

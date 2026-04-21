@@ -3,34 +3,24 @@ api/routes/results.py
 
 GET /results — query historical pipeline results from the database.
 
-Authentication: X-API-Key header.
+FIX 1: Removed duplicated _authenticate / _get_orchestrator.
+        Both now imported from api.dependencies.
+
+FIX 2: Route no longer accesses orchestrator._storage directly (private attribute).
+        Now calls orchestrator.get_results() — a public method added to the orchestrator.
 """
 
 from __future__ import annotations
 
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
+from api.dependencies import authenticate, get_orchestrator
 from core.config_loader import get_config
 from pipeline.orchestrator import PipelineOrchestrator
 
 router = APIRouter(tags=["results"])
-
-
-def _get_orchestrator(request: Request) -> PipelineOrchestrator:
-    return request.app.state.orchestrator
-
-
-def _authenticate(x_api_key: str = Header(..., alias="X-API-Key")) -> str:
-    config = get_config()
-    expected_key: str = config.api.api_key
-    if not expected_key or x_api_key != expected_key:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or missing API key",
-        )
-    return x_api_key
 
 
 @router.get(
@@ -47,8 +37,8 @@ async def get_results(
         default=None,
         description="Filter by target: 'water', 'food', or 'mouse'",
     ),
-    _: str = Depends(_authenticate),
-    orchestrator: PipelineOrchestrator = Depends(_get_orchestrator),
+    _: str = Depends(authenticate),
+    orchestrator: PipelineOrchestrator = Depends(get_orchestrator),
 ):
     """
     Return historical pipeline results from the database.
@@ -69,7 +59,8 @@ async def get_results(
         )
 
     try:
-        rows: List[dict] = await orchestrator._storage.get_results(
+        # FIX: use the public orchestrator method — never access _storage directly
+        rows: List[dict] = await orchestrator.get_results(
             limit=limit, offset=offset, target=target
         )
     except Exception as exc:

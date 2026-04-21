@@ -4,36 +4,20 @@ api/routes/ingest.py
 POST /analyze — receives an image upload, runs the full pipeline,
 and returns a PipelineResult as JSON.
 
-Authentication: X-API-Key header.
-Rate limiting: config.api.rate_limit_per_minute (using slowapi).
+FIX: Removed duplicated _authenticate and _get_orchestrator.
+     Both now imported from api.dependencies (single source of truth).
 """
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, Header, HTTPException, Request, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from loguru import logger
 
+from api.dependencies import authenticate, get_orchestrator
 from core.config_loader import get_config
 from pipeline.orchestrator import PipelineOrchestrator
 
 router = APIRouter(tags=["ingest"])
-
-
-def _get_orchestrator(request: Request) -> PipelineOrchestrator:
-    """Extract orchestrator from app state (set during startup)."""
-    return request.app.state.orchestrator
-
-
-def _authenticate(x_api_key: str = Header(..., alias="X-API-Key")) -> str:
-    """Validate the API key from the X-API-Key header."""
-    config = get_config()
-    expected_key: str = config.api.api_key
-    if not expected_key or x_api_key != expected_key:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or missing API key",
-        )
-    return x_api_key
 
 
 @router.post(
@@ -45,8 +29,8 @@ def _authenticate(x_api_key: str = Header(..., alias="X-API-Key")) -> str:
 async def analyze(
     request: Request,
     image: UploadFile = File(..., description="Image file to analyze"),
-    _: str = Depends(_authenticate),
-    orchestrator: PipelineOrchestrator = Depends(_get_orchestrator),
+    _: str = Depends(authenticate),
+    orchestrator: PipelineOrchestrator = Depends(get_orchestrator),
 ):
     """
     Accept a vivarium image, run the full monitoring pipeline, and return results.
@@ -58,7 +42,7 @@ async def analyze(
     """
     config = get_config()
 
-    # Basic filename sanity check
+    # Filename / format validation
     allowed_formats = set(config.input.allowed_formats)
     filename = image.filename or "upload.jpg"
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
@@ -96,7 +80,6 @@ async def analyze(
             },
         )
 
-    # Optionally strip image path from response
     output = result.to_dict()
     if not config.api.response_include_image_path:
         output.pop("image_path", None)
