@@ -1,3 +1,4 @@
+# config.yaml
 app:
   name: vivarium-monitor
   env: local
@@ -42,21 +43,59 @@ preprocessor:
   normalize: true
   save_preprocessed: false
 
+# ---------------------------------------------------------------------------
+# Detector
+# ---------------------------------------------------------------------------
+# engine options:
+#   yolov8world  — open-vocab, ultralytics YOLOWorld   (requires: ultralytics)
+#   groundingdino — open-vocab, IDEA-Research DINO     (requires: groundingdino)
+#   owlvit       — open-vocab, Google OWL-ViT/OWLv2   (requires: transformers torch)
+#   yolov8       — closed-vocab, standard YOLOv8       (requires: ultralytics)
+#                  needs class_map under yolov8 block below
+# ---------------------------------------------------------------------------
 detector:
-  engine: yolov8world            # yolov8world | groundingdino
+  engine: yolov8world            # yolov8world | groundingdino | owlvit | yolov8
   model_path: ./models/weights/yolov8x-world.pt
   device: cpu                    # cpu | cuda | mps
   min_confidence: 0.45
   prompts:
     water: "water bottle with liquid inside"
     food: "food pile in a feeding tray"
-    mouse: "small white mouse on white bedding"
+    mouse: "small rodent mouse"
+
+ # ---- YOLOv8 (closed-vocabulary) config ---------------------------------
+  # Only read when engine: yolov8
+  # model_path (top-level) must point to a fine-tuned YOLOv8 checkpoint.
+  # Update class_map indices to match your dataset's class order after training
+  yolov8:
+    class_map:
+      water: 0        # update after training
+      food: 1         # update after training
+      mouse: 2        # update after training
+    nms_iou: 0.45
+    agnostic_nms: true
+
+  # ---- OWL-ViT (open-vocabulary, transformer-based) config ---------------
+  # Only read when engine: owlvit
+  # model_path accepts a HuggingFace hub ID or a local directory.
+  # Recommended model IDs:
+  #   google/owlvit-base-patch32   — fastest, good for CPU
+  #   google/owlvit-base-patch16   — higher spatial resolution
+  #   google/owlvit-large-patch14  — best accuracy, GPU recommended
+  #   google/owlv2-base-patch16    — OWLv2, improved small-object recall
+  # score_threshold: pre-NMS filter; keep ≤ 0.15 — OWL-ViT raw scores are
+  #   lower than YOLO confidences. min_confidence above is the final gate.
+  owlvit:
+    # score_threshold: pre-NMS filter — OWL-ViT raw scores are lower than YOLO
+    score_threshold: 0.10        
+    nms_iou: 0.30
+    nms_per_target: true
 
 gate:
   enabled: true
-  min_box_aspect_ratio: 1.4
-  min_visible_area_ratio: 0.30
-  max_edge_proximity_ratio: 0.05
+  min_box_aspect_ratio: 0.3    # was 0.5 — circular bowls have AR ~1.0, fine; keep loose
+  min_visible_area_ratio: 0.02  # was 0.10 — objects are small in top-down view
+  max_edge_proximity_ratio: 0.02 # was 0.10 — water bottle is always near an edge
 
 water:
   engine: clip                   # clip | opencv | classifier
@@ -99,9 +138,6 @@ food:
   min_measurement_confidence: 0.65
 
 mouse:
-  # FIX: was "yolo" — yolo is a detector engine, not a measurer engine.
-  # "yolo" was silently falling back to CLIP with no warning.
-  # Use "clip" for zero-shot mouse presence detection.
   engine: clip                   # clip | classifier
   model_path: null
   clip_model: ViT-B/32

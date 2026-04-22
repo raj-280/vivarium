@@ -16,6 +16,9 @@ import yaml
 from dotmap import DotMap
 
 
+from dotenv import load_dotenv  # ← import first
+
+load_dotenv()                   # ← then call it
 _ENV_VAR_PATTERN = re.compile(r"\$\{([^}]+)\}")
 
 
