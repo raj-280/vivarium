@@ -10,11 +10,11 @@ FIXES APPLIED:
 """
 
 from __future__ import annotations
-
+from pipeline.threshold.engine import ThresholdEngine
 from datetime import timezone
 from datetime import datetime
 from typing import Dict, List, Optional
-
+from pipeline.annotator.factory import AnnotatorFactory
 import numpy as np
 from dotmap import DotMap
 from loguru import logger
@@ -229,6 +229,18 @@ class PipelineOrchestrator:
             except Exception as exc:
                 logger.error(f"Measurer error for target '{target}': {exc}")
                 uncertain_targets.append(target)
+# --- Step 5b: Annotate (dev only, guarded by config flag) ---
+        if getattr(self.config, "annotator", None) and self.config.annotator.enabled:
+            try:
+                annotator = AnnotatorFactory.create(self.config)
+                annotated_path = annotator.draw(
+                    preprocessed, gated, measurements,
+                    result_id="pending",
+                    filename=filename,
+                )
+                logger.info(f"Annotated image saved → {annotated_path}")
+            except Exception as exc:
+                logger.warning(f"Annotator failed (non-fatal): {exc}")
 
         # --- Step 6: Aggregate result ---
         result = PipelineResult(

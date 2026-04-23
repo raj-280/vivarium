@@ -98,13 +98,13 @@ class GroundingDINODetector(BaseDetector):
             processed = self._processor.post_process_grounded_object_detection(
                 outputs,
                 inputs["input_ids"],
-                box_threshold=min_conf,
-                text_threshold=min_conf,
                 target_sizes=target_sizes,
             )[0]
-
-            boxes = processed["boxes"]
-            scores = processed["scores"]
+            
+            # Manually filter by confidence threshold (replaces removed box_threshold arg)
+            keep_mask = processed["scores"] >= min_conf
+            boxes = processed["boxes"][keep_mask]
+            scores = processed["scores"][keep_mask]
 
             if len(scores) == 0:
                 logger.debug(f"No detection for target '{target}' via GroundingDINO")

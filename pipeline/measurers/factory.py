@@ -28,9 +28,10 @@ class ConfigurationError(Exception):
 # To add a new measurer: add one entry here + create the implementation file.
 # "yolo" is intentionally NOT in this registry — it is a detector engine, not a measurer.
 _REGISTRY: dict[str, str] = {
-    "clip":       "pipeline.measurers.clip_measurer.CLIPMeasurer",
-    "opencv":     "pipeline.measurers.opencv_measurer.OpenCVMeasurer",
-    "classifier": "pipeline.measurers.classifier.ClassifierMeasurer",
+    "clip":         "pipeline.measurers.clip_measurer.CLIPMeasurer",
+    "opencv":       "pipeline.measurers.opencv_measurer.OpenCVMeasurer",
+    "opencv_food":  "pipeline.measurers.opencv_food_measurer.OpenCVFoodMeasurer",
+    "classifier":   "pipeline.measurers.classifier.ClassifierMeasurer",
 }
 
 

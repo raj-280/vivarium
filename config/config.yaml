@@ -59,61 +59,55 @@ detector:
   device: cpu                    # cpu | cuda | mps
   min_confidence: 0.45
   prompts:
-    water: "water bottle with liquid inside"
-    food: "food pile in a feeding tray"
-    mouse: "small rodent mouse"
+    water: "clear glass jar with water inside sitting on wire rack"
+    food:  "small ceramic bowl with food pellets on wire rack"
+    mouse: "small rodent mouse animal"
 
- # ---- YOLOv8 (closed-vocabulary) config ---------------------------------
+  # ---- YOLOv8 (closed-vocabulary) config ---------------------------------
   # Only read when engine: yolov8
-  # model_path (top-level) must point to a fine-tuned YOLOv8 checkpoint.
-  # Update class_map indices to match your dataset's class order after training
   yolov8:
     class_map:
-      water: 0        # update after training
-      food: 1         # update after training
-      mouse: 2        # update after training
+      water: 0
+      food: 1
+      mouse: 2
     nms_iou: 0.45
     agnostic_nms: true
 
   # ---- OWL-ViT (open-vocabulary, transformer-based) config ---------------
   # Only read when engine: owlvit
-  # model_path accepts a HuggingFace hub ID or a local directory.
-  # Recommended model IDs:
-  #   google/owlvit-base-patch32   — fastest, good for CPU
-  #   google/owlvit-base-patch16   — higher spatial resolution
-  #   google/owlvit-large-patch14  — best accuracy, GPU recommended
-  #   google/owlv2-base-patch16    — OWLv2, improved small-object recall
-  # score_threshold: pre-NMS filter; keep ≤ 0.15 — OWL-ViT raw scores are
-  #   lower than YOLO confidences. min_confidence above is the final gate.
   owlvit:
-    # score_threshold: pre-NMS filter — OWL-ViT raw scores are lower than YOLO
-    score_threshold: 0.10        
+    score_threshold: 0.10
     nms_iou: 0.30
     nms_per_target: true
 
 gate:
   enabled: true
-  min_box_aspect_ratio: 0.3    # was 0.5 — circular bowls have AR ~1.0, fine; keep loose
-  min_visible_area_ratio: 0.02  # was 0.10 — objects are small in top-down view
-  max_edge_proximity_ratio: 0.02 # was 0.10 — water bottle is always near an edge
+  min_box_aspect_ratio: 0.3
+  min_visible_area_ratio: 0.02
+  max_edge_proximity_ratio: 0.02
 
+# ---------------------------------------------------------------------------
+# Water
+# Labels written for angled-overhead camera view of a clear glass jar
+# sitting on a wire rack — water level visible through the glass side wall.
+# ---------------------------------------------------------------------------
 water:
   engine: clip                   # clip | opencv | classifier
   model_path: null
   clip_model: ViT-B/32
+  min_measurement_confidence: 0.45   # lowered from 0.65 — glass jars are hard for CLIP
   clip_labels:
-    - "water bottle completely filled to the top with clear liquid"
-    - "water bottle three quarters filled with water"
-    - "water bottle half filled with water level at midpoint"
-    - "water bottle one quarter filled low water level"
-    - "empty water bottle no liquid inside"
+    - "clear glass jar completely full of water, liquid reaches the top"
+    - "clear glass jar three quarters full of water"
+    - "clear glass jar half full of water, air gap visible above water line"
+    - "clear glass jar one quarter full of water, mostly air inside"
+    - "clear glass jar empty, no water inside"
   level_map:
     0: 100
     1: 75
     2: 50
     3: 25
     4: 0
-  min_measurement_confidence: 0.65
   opencv:
     edge_method: canny
     canny_threshold1: 50
@@ -121,22 +115,39 @@ water:
     enable_horizontal_line_detection: true
     horizontal_threshold_px: 10
 
+# ---------------------------------------------------------------------------
+# Food
+# Labels written for angled-overhead camera view of a small ceramic bowl
+# sitting on a wire rack, containing brown/tan rodent food pellets.
+# ---------------------------------------------------------------------------
 food:
-  engine: clip                   # clip | opencv | classifier
+  engine: clip                   # clip | opencv | opencv_food | classifier
   model_path: null
   clip_model: ViT-B/32
+  min_measurement_confidence: 0.45   # lowered from 0.65
   clip_labels:
-    - "feeding tray overflowing with pellets full food"
-    - "feeding tray half filled with pellets adequate food"
-    - "feeding tray with sparse pellets running low"
-    - "empty feeding tray no pellets visible"
+  - "bowl full of food"
+  - "bowl with some food"
+  - "bowl with little food"
+  - "empty bowl"
   level_map:
     0: 100
     1: 50
-    2: 15
+    2: 25
     3: 0
-  min_measurement_confidence: 0.65
+  opencv_food:
+    pellet_h_low: 5
+    pellet_h_high: 30
+    pellet_s_low: 30
+    pellet_s_high: 255
+    pellet_v_low: 20
+    pellet_v_high: 180
+    debug: false
 
+# ---------------------------------------------------------------------------
+# Mouse
+# Binary presence detection — CLIP works well for this.
+# ---------------------------------------------------------------------------
 mouse:
   engine: clip                   # clip | classifier
   model_path: null
@@ -148,6 +159,7 @@ mouse:
     0: true
     1: false
   min_consecutive_absent: 3
+  min_measurement_confidence: 0.45
 
 thresholds:
   water_low_pct: 25
