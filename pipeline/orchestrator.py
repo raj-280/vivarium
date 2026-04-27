@@ -7,9 +7,13 @@ stage in sequence.
 FIXES APPLIED:
   FIX 6: Added public get_results() method so routes never touch _storage directly.
   FIX 7: Replaced datetime.utcnow() with datetime.now(tz=timezone.utc) throughout.
+  FIX 8: Annotator preview_dir resolved to absolute path from project root.
 """
 
 from __future__ import annotations
+
+import os
+from pathlib import Path
 from pipeline.threshold.engine import ThresholdEngine
 from datetime import timezone
 from datetime import datetime
@@ -89,7 +93,7 @@ class PipelineOrchestrator:
         """Disconnect from DB and release resources."""
         await self._storage.disconnect()
         logger.info("Pipeline shutdown complete")
-
+    
     # ------------------------------------------------------------------
     # FIX 6: Public method so routes never access _storage directly
     # ------------------------------------------------------------------
@@ -229,8 +233,9 @@ class PipelineOrchestrator:
             except Exception as exc:
                 logger.error(f"Measurer error for target '{target}': {exc}")
                 uncertain_targets.append(target)
-# --- Step 5b: Annotate (dev only, guarded by config flag) ---
-        if getattr(self.config, "annotator", None) and self.config.annotator.enabled:
+        # --- Step 5b: Annotate (dev only, guarded by config flag) ---
+        annotator_cfg = self.config.get("annotator", None)
+        if annotator_cfg and annotator_cfg.get("enabled", False):
             try:
                 annotator = AnnotatorFactory.create(self.config)
                 annotated_path = annotator.draw(
@@ -240,7 +245,7 @@ class PipelineOrchestrator:
                 )
                 logger.info(f"Annotated image saved → {annotated_path}")
             except Exception as exc:
-                logger.warning(f"Annotator failed (non-fatal): {exc}")
+                logger.warning(f"Annotator failed (non-fatal): {exc}", exc_info=True)
 
         # --- Step 6: Aggregate result ---
         result = PipelineResult(

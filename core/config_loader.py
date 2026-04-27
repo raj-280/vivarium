@@ -15,7 +15,7 @@ from typing import Any
 import yaml
 from dotmap import DotMap
 
-
+from loguru import logger
 from dotenv import load_dotenv  # ← import first
 
 load_dotenv()                   # ← then call it
@@ -110,7 +110,7 @@ def load_config(
 
     # Expand all ${ENV_VAR} patterns
     merged = _walk_and_expand(merged)
-
+    logger.debug(f"Config loaded | base={base_path} | env={active_env} | override={override_path}") 
     return DotMap(merged, _dynamic=False)
 
 

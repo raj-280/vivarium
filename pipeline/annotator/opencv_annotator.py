@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import Dict, Optional
 
 import cv2
 import numpy as np
-from dotmap import DotMap
 from loguru import logger
 
 from core.result import BoundingBox, MeasurementResult
 from pipeline.annotator.base import BaseAnnotator
+
+# Project root — two levels up from this file (pipeline/annotator/ → project)
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 # BGR colors per target
 _COLORS = {
@@ -33,6 +36,7 @@ class OpenCVAnnotator(BaseAnnotator):
         out = image.copy()
         h, w = out.shape[:2]
 
+        drawn_count = 0
         for target, bbox in gated.items():
             if bbox is None:
                 continue
@@ -50,8 +54,10 @@ class OpenCVAnnotator(BaseAnnotator):
             meas = measurements.get(target)
             if target == "mouse":
                 label = f"mouse: {'present' if meas and meas.present else 'absent'}"
-            elif meas:
+            elif meas and meas.level is not None:
                 label = f"{target}: {meas.level:.0f}%"
+            elif meas:
+                label = f"{target}: uncertain"
             else:
                 label = target
 
@@ -69,16 +75,31 @@ class OpenCVAnnotator(BaseAnnotator):
                 out, label, (x1 + 2, y1 - 4),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2
             )
+            drawn_count += 1
 
-        # Save to outputs/annotated/<result_id>_<filename>
-        preview_dir = str(self.config.annotator.preview_dir)
+        logger.debug(f"Annotator drew {drawn_count} boxes on {w}x{h} image")
+
+        # Resolve preview_dir relative to project root (not CWD)
+        raw_preview_dir = str(self.config.annotator.preview_dir)
+        if os.path.isabs(raw_preview_dir):
+            preview_dir = Path(raw_preview_dir)
+        else:
+            preview_dir = _PROJECT_ROOT / raw_preview_dir
+        preview_dir = preview_dir.resolve()
+
         os.makedirs(preview_dir, exist_ok=True)
 
         base = os.path.splitext(filename)[0]
         out_filename = f"{result_id}_{base}.jpg"
-        out_path = os.path.join(preview_dir, out_filename)
+        out_path = str(preview_dir / out_filename)
 
-        cv2.imwrite(out_path, out)
+        success = cv2.imwrite(out_path, out)
+        if not success:
+            logger.error(
+                f"cv2.imwrite FAILED for path '{out_path}' — "
+                f"check directory permissions and path validity"
+            )
+            raise IOError(f"cv2.imwrite failed to save annotated image to '{out_path}'")
+
         logger.info(f"Annotator saved image → {out_path}")
-
         return out_path

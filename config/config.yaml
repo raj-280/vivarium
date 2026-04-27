@@ -1,4 +1,4 @@
-# config.yaml
+ # config.yaml
 app:
   name: vivarium-monitor
   env: local
@@ -54,8 +54,8 @@ preprocessor:
 #                  needs class_map under yolov8 block below
 # ---------------------------------------------------------------------------
 detector:
-  engine: yolov8world            # yolov8world | groundingdino | owlvit | yolov8
-  model_path: ./models/weights/yolov8x-world.pt
+  engine: yolov8         # yolov8world | groundingdino | owlvit | yolov8
+  model_path: ./models/weights/yolov.pt
   device: cpu                    # cpu | cuda | mps
   min_confidence: 0.45
   prompts:
@@ -215,6 +215,14 @@ storage:
     schema: public
     pool_size: 5
     pool_timeout_seconds: 30
+
+# ---------------------------------------------------------------------------
+# Annotator — draws bounding boxes + labels on processed frames (dev tool)
+# ---------------------------------------------------------------------------
+annotator:
+  enabled: false                 # enable in config.local.yaml for visual debugging
+  engine: opencv                 # opencv
+  preview_dir: outputs/annotated
 
 api:
   host: 0.0.0.0

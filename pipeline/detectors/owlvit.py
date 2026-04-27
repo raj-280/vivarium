@@ -67,33 +67,24 @@ class OWLViTDetector(BaseDetector):
     # ------------------------------------------------------------------
 
     def load(self) -> None:
-        """
-        Download (first run) and load OWL-ViT weights from HuggingFace hub
-        or a local directory specified by config.detector.model_path.
-        """
-        try:
-            from transformers import (  # type: ignore
-                OwlViTForObjectDetection,
-                OwlViTProcessor,
-            )
-        except ImportError as exc:
-            raise ImportError(
-                "transformers is not installed. "
-                "Run: pip install transformers"
-            ) from exc
-
-        model_id: str = self.config.detector.model_path
-        device: str = self.config.detector.device
-
-        logger.info(
-            f"Loading OWL-ViT model '{model_id}' on device='{device}'"
-        )
-        self._processor = OwlViTProcessor.from_pretrained(model_id)
-        self._model = OwlViTForObjectDetection.from_pretrained(model_id)
-        self._model.to(device)
-        self._model.eval()
-        logger.info("OWL-ViT model loaded successfully")
-
+       from transformers import (
+           OwlViTForObjectDetection, OwlViTProcessor,
+           Owlv2ForObjectDetection, Owlv2Processor,
+       )
+   
+       model_id: str = self.config.detector.model_path
+       device: str = self.config.detector.device
+       is_v2 = "owlv2" in model_id.lower()
+   
+       ModelClass = Owlv2ForObjectDetection if is_v2 else OwlViTForObjectDetection
+       ProcessorClass = Owlv2Processor if is_v2 else OwlViTProcessor
+   
+       logger.info(f"Loading {'OWLv2' if is_v2 else 'OWL-ViT'} '{model_id}' on device='{device}'")
+       self._processor = ProcessorClass.from_pretrained(model_id)
+       self._model = ModelClass.from_pretrained(model_id)
+       self._model.to(device)
+       self._model.eval()
+       logger.info(f"{'OWLv2' if is_v2 else 'OWL-ViT'} model loaded successfully")
     # ------------------------------------------------------------------
     # Detection
     # ------------------------------------------------------------------
@@ -131,9 +122,9 @@ class OWLViTDetector(BaseDetector):
             ) from exc
 
         owlvit_cfg = self.config.detector.owlvit
-        score_threshold: float = float(owlvit_cfg.get("score_threshold", 0.10))
-        nms_iou: float = float(owlvit_cfg.get("nms_iou", 0.30))
-        nms_per_target: bool = bool(owlvit_cfg.get("nms_per_target", True))
+        score_threshold: float = float(getattr(owlvit_cfg, "score_threshold", 0.10))
+        nms_iou: float = float(getattr(owlvit_cfg, "nms_iou", 0.30))
+        nms_per_target: bool = bool(getattr(owlvit_cfg, "nms_per_target", True))
         min_conf: float = float(self.config.detector.min_confidence)
 
         prompts_cfg = self.config.detector.prompts
