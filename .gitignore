@@ -41,3 +41,4 @@ htmlcov/
 # MacOS
 .DS_Store
 /outputs
+train

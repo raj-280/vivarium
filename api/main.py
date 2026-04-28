@@ -45,6 +45,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     logger.info("Shutting down pipeline")
     await _orchestrator.shutdown()
+    
     logger.info("Shutdown complete")
 
 
