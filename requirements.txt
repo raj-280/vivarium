@@ -1,0 +1,49 @@
+# ============================================================
+# Vivarium Monitoring Pipeline — Requirements
+# Python 3.11+
+# ============================================================
+
+# --- Core API framework ---
+fastapi>=0.111.0
+uvicorn[standard]>=0.29.0
+python-multipart>=0.0.9          # multipart/form-data uploads
+
+# --- Configuration ---
+PyYAML>=6.0.1
+dotmap>=1.3.30                   # attribute-access dict (config.key syntax)
+python-dotenv>=1.0.1             # load .env for local dev
+
+# --- Computer vision (core) ---
+opencv-python>=4.9.0
+
+# --- Detector — YOLOv8-World ---
+ultralytics>=8.2.0
+
+# --- PyTorch (required for PSPNet measurer) ---
+torch>=2.2.0
+
+# --- Measurer — custom ONNX classifier (optional) ---
+onnxruntime>=1.18.0
+
+# --- Logging ---
+loguru>=0.7.2
+
+# --- Image processing ---
+Pillow>=10.3.0
+
+# --- AWS S3 (image source) ---
+boto3>=1.34.0
+
+# --- Database (Phase 2 Step 5) ---
+sqlalchemy>=2.0.0            # async ORM
+aiosqlite>=0.20.0            # async SQLite driver (zero-infra Alpha default)
+asyncpg>=0.29.0              # async PostgreSQL driver (swap to Postgres later)
+
+# --- Testing ---
+pytest>=8.1.0
+pytest-asyncio>=0.23.6
+pytest-mock>=3.14.0
+httpx>=0.27.0                    # async test client for FastAPI
+
+# --- Rate limiting (optional, plug into FastAPI middleware) ---
+# slowapi>=0.1.9

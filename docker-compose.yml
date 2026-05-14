@@ -1,0 +1,35 @@
+# ============================================================
+# Vivarium Monitoring Pipeline — Docker Compose
+# ============================================================
+
+services:
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    container_name: vivarium-api
+
+    # Pass your .env file at runtime — secrets never baked into image
+    env_file:
+      - .env
+
+    ports:
+      - "8000:8000"
+
+    volumes:
+      # Annotated images persist on your host machine even if container restarts
+      - ./outputs:/app/outputs
+
+    # Restart automatically unless manually stopped
+    restart: unless-stopped
+
+    # Health check — hits /health endpoint every 30s
+    # Container marked unhealthy if it fails 3 times in a row
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s    # give models time to load before first check

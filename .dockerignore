@@ -1,0 +1,50 @@
+# ============================================================
+# Vivarium Monitoring Pipeline — .dockerignore
+# Keeps the build context small and secrets out of the image.
+# ============================================================
+
+# Virtual environment — dependencies reinstalled via pip inside container
+venv/
+.venv/
+env/
+
+# Git — not needed at runtime
+.git/
+.gitignore
+
+# Secrets — NEVER bake into image, passed at runtime via --env-file
+.env
+
+# Python cache — regenerated inside container
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Outputs — mounted as a volume at runtime
+outputs/
+
+# Training scripts — not needed in production container
+train/
+
+# Test files — not needed in production container
+tests/
+.coverage
+htmlcov/
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs — generated at runtime
+logs/
+
+# README
+README.md

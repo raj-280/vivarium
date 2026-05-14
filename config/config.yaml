@@ -1,0 +1,205 @@
+# config.yaml
+
+app:
+  name: vivarium-monitor
+  env: local
+  log_level: DEBUG
+
+logging:
+  format: json
+  sink: stdout
+  file_path: ./logs/vivarium.log
+  pipeline_log_path: ./logs/pipeline_events.jsonl
+  rotate_mb: 10
+  retain_days: 7
+
+pipeline:
+  stages:
+    - preprocessor
+    - detector
+    - measurers
+    - aggregator
+
+targets:
+  enabled:
+    - water
+    - food
+    - mouse
+    - bedding
+
+input:
+  source: api_upload
+  folder_watch_path: ./incoming
+  folder_watch_interval_seconds: 30
+  webhook_secret: null
+  max_image_size_mb: 10
+  allowed_formats: [jpg, jpeg, png, webp]
+
+# ── Preprocessor ──────────────────────────────────────────────────────────────
+preprocessor:
+  resize_to: [640, 640]
+  blur_threshold: 40
+  normalize: true
+  save_preprocessed: false
+  brightness_balance: true
+  clahe_clip_limit: 2.0
+  clahe_tile_grid: 8
+
+# ── Detector ──────────────────────────────────────────────────────────────────
+# Switch between yolox / yolov8 / yolov8world by changing engine below.
+# All other pipeline code (measurers, orchestrator, DB, webhook) adapts automatically.
+
+detector:
+  engine: yolox                          # <-- change to yolov8 / yolov8world to switch back
+  model_path: ./weights/yolox_vivarium.pth
+  device: cpu
+  min_confidence: 0.10
+
+  # YOLOX-specific config (only read when engine: yolox)
+  yolox:
+    num_classes: 13
+    input_size: [416, 416]               # [h, w] — must match your training exp
+    exp_file: ./weights/yolox_vivarium_tiny.py
+    nms_iou: 0.45
+
+  # YOLOv8 closed-vocabulary config (only read when engine: yolov8)
+  yolov8:
+    class_map:
+      water: 0
+      food: 1
+      mouse: 2
+    nms_iou: 0.45
+    agnostic_nms: true
+
+  # YOLOv8-World open-vocabulary config (only read when engine: yolov8world)
+  prompts:
+    water: "clear glass jar with water inside sitting on wire rack"
+    food:  "small ceramic bowl with food pellets on wire rack"
+    mouse: "small rodent mouse animal"
+
+# ── Measurers ─────────────────────────────────────────────────────────────────
+# When engine: yolox above, all four targets use yolox_class.
+# yolox_class decodes level/condition from the YOLOX class ID — no second model.
+# To switch a single target back to PSPNet/classifier, just change its engine here.
+
+measurers:
+  water:
+    engine: yolox_class                  # decodes cls 1–4 → 25/50/75/100%
+    min_confidence: 0.05
+
+  food:
+    engine: yolox_class                  # decodes cls 5–8 → 25/50/75/100%
+    min_confidence: 0.20
+
+  mouse:
+    engine: yolox_class                  # decodes cls 0 → present=True
+    min_confidence: 0.35
+
+  bedding:
+    engine: yolox_class                  # decodes cls 9–12 → PERFECT/OK/BAD/WORST
+    min_confidence: 0.20
+
+  # ── Kept for reference — swap engine back if needed ──────────────────────
+  # water:
+  #   engine: fcn_psp
+  #   model_path: ./weights/water_pspnet.pt
+  #   device: cpu
+  #   input_size: 473
+  #   min_confidence: 0.30
+  #   min_liquid_confidence: 0.5
+  #   missing_area_threshold: 0.005
+  #   missing_variance_threshold: 8.0
+
+  # food:
+  #   engine: classifier
+  #   model_path: ./weights/food_classifier.onnx
+  #   min_confidence: 0.30
+  #   labels: ["empty", "low", "adequate", "full"]
+  #   level_map:
+  #     0: 0.0
+  #     1: 25.0
+  #     2: 75.0
+  #     3: 100.0
+
+  # mouse:
+  #   engine: detection_presence
+  #   min_confidence: 0.45
+
+annotator:
+  enabled: true
+  engine: opencv
+  preview_dir: outputs/annotated
+
+mouse_stationary:
+  enabled: true
+  iou_threshold: 0.70
+  consecutive_count: 2
+  log_file: ./logs/mouse_positions.jsonl
+
+level_labels:
+  water:
+    - max: 20
+      label: "Critical"
+    - max: 40
+      label: "Low"
+    - max: 70
+      label: "OK"
+    - max: 100
+      label: "Full"
+  food:
+    - max: 20
+      label: "Critical"
+    - max: 40
+      label: "Low"
+    - max: 70
+      label: "OK"
+    - max: 100
+      label: "Full"
+
+deduplication:
+  enabled: true
+  strategy: phash
+  cache_size: 64
+  ttl_seconds: 300
+  phash_distance_threshold: 4
+
+queue:
+  workers: 4
+  maxsize: 100
+
+database:
+  url: sqlite+aiosqlite:///./vivarium.db
+
+alerts:
+  enabled: false
+  thresholds:
+    water:
+      low: 20.0
+      empty: 5.0
+    food:
+      low: 20.0
+      empty: 5.0
+
+s3:
+  enabled: false
+  input_prefix: vivarium/input/
+  output_prefix: vivarium/output/
+  region: us-east-1
+  bucket: test-bucket
+  presigned_url_expiry: 900
+
+webhook:
+  enabled: false
+  secret: ""
+  timeout_seconds: 5
+  urls:
+    - https://webhook.site/f3c8ea04-1ccf-4c21-a579-2f6bafeb7720
+
+api:
+  host: 0.0.0.0
+  port: 8000
+  api_key: ${API_KEY}
+  rate_limit_per_minute: 30
+  cors_origins:
+    - "*"
+  response_include_image_path: false
