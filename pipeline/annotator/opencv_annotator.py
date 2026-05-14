@@ -81,8 +81,11 @@ class OpenCVAnnotator(BaseAnnotator):
                     label = f"bedding: {meas.bedding_condition}"
                 else:
                     label = "bedding: unknown"
-            elif meas and meas.level is not None:
-                label = f"{target}: {meas.level:.0f}%"
+            elif meas and meas.label and meas.label not in ("UNDETERMINED", "NOT_DETECTED", "UNKNOWN"):
+                # Use the human-readable label from measurer e.g. "food OK (cls7)"
+                # Extract just the name part between target and (cls...)
+                name = meas.label.split(" ")[1] if " " in meas.label else meas.label
+                label = f"{target}: {name} ({meas.level:.0f}%)"
             elif meas:
                 label = f"{target}: uncertain"
             else:

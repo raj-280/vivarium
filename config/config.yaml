@@ -84,19 +84,19 @@ detector:
 
 measurers:
   water:
-    engine: yolox_class                  # decodes cls 1–4 → 25/50/75/100%
+    engine: yolox_class                  # cls1=Critical(7.5%) cls2=Low(25%) cls3=OK(57.5%) cls4=Full(90%)
     min_confidence: 0.05
 
   food:
-    engine: yolox_class                  # decodes cls 5–8 → 25/50/75/100%
+    engine: yolox_class                  # cls5=Critical(7.5%) cls6=Low(25%) cls7=OK(57.5%) cls8=Full(90%)
     min_confidence: 0.20
 
   mouse:
-    engine: yolox_class                  # decodes cls 0 → present=True
+    engine: yolox_class                  # cls0 → present=True
     min_confidence: 0.35
 
   bedding:
-    engine: yolox_class                  # decodes cls 9–12 → PERFECT/OK/BAD/WORST
+    engine: yolox_class                  # cls9=WORST cls10=BAD cls11=OK cls12=PERFECT
     min_confidence: 0.20
 
   # ── Kept for reference — swap engine back if needed ──────────────────────
@@ -155,6 +155,21 @@ level_labels:
       label: "OK"
     - max: 100
       label: "Full"
+
+# ── YOLOX class → percentage mapping ───────────────────────────────────────
+# Change these to adjust what percentage each class ID maps to.
+# Must match training class boundaries in yolox_vivarium_tiny.py.
+yolox_class_levels:
+  water:
+    1: 10      # water_critical  (0–15%  midpoint)
+    2: 25.0     # water_low       (15–35% midpoint)
+    3: 65     # water_ok        (35–80% midpoint)
+    4: 90.0     # water_full      (80–100% midpoint)
+  food:
+    5: 7.5      # food_critical   (0–15%  midpoint)
+    6: 25.0     # food_low        (15–35% midpoint)
+    7: 57.5     # food_ok         (35–80% midpoint)
+    8: 90.0     # food_full       (80–100% midpoint)
 
 deduplication:
   enabled: true

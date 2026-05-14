@@ -34,11 +34,12 @@ from pipeline.measurers.base import BaseMeasurer
 
 # ── Water: class ID → fill percentage ────────────────────────────────────────
 # Matches exp file: 1=critical(0-15%) 2=low(15-35%) 3=ok(35-80%) 4=full(80-100%)
-_WATER_LEVEL: dict[int, float] = {
-    1: 7.5,    # critical  — midpoint of 0–15%
-    2: 25.0,   # low       — midpoint of 15–35%
-    3: 57.5,   # ok        — midpoint of 35–80%
-    4: 90.0,   # full      — midpoint of 80–100%
+# Defaults used only if yolox_class_levels not in config
+_WATER_LEVEL_DEFAULT: dict[int, float] = {
+    1: 7.5,
+    2: 25.0,
+    3: 57.5,
+    4: 90.0,
 }
 _WATER_LABEL: dict[int, str] = {
     1: "Critical",
@@ -49,11 +50,12 @@ _WATER_LABEL: dict[int, str] = {
 
 # ── Food: class ID → fill percentage ─────────────────────────────────────────
 # Matches exp file: 5=critical(0-15%) 6=low(15-35%) 7=ok(35-80%) 8=full(80-100%)
-_FOOD_LEVEL: dict[int, float] = {
-    5: 7.5,    # critical  — midpoint of 0–15%
-    6: 25.0,   # low       — midpoint of 15–35%
-    7: 57.5,   # ok        — midpoint of 35–80%
-    8: 90.0,   # full      — midpoint of 80–100%
+# Defaults used only if yolox_class_levels not in config
+_FOOD_LEVEL_DEFAULT: dict[int, float] = {
+    5: 7.5,
+    6: 25.0,
+    7: 57.5,
+    8: 90.0,
 }
 _FOOD_LABEL: dict[int, str] = {
     5: "Critical",
@@ -136,6 +138,15 @@ class YOLOXMeasurer(BaseMeasurer):
 
         cls_id = _parse_cls_id(label)
 
+        # Load levels from config if available, else use defaults
+        try:
+            cfg_levels = self.config.yolox_class_levels
+            water_level = {int(k): float(v) for k, v in dict(cfg_levels.water).items()}
+            food_level  = {int(k): float(v) for k, v in dict(cfg_levels.food).items()}
+        except Exception:
+            water_level = _WATER_LEVEL_DEFAULT
+            food_level  = _FOOD_LEVEL_DEFAULT
+
         # ── Mouse ─────────────────────────────────────────────────────
         if self.target == "mouse":
             logger.debug(f"[YOLOXMeasurer] mouse detected | cls_id={cls_id}")
@@ -148,7 +159,7 @@ class YOLOXMeasurer(BaseMeasurer):
 
         # ── Water ─────────────────────────────────────────────────────
         if self.target == "water":
-            level = _WATER_LEVEL.get(cls_id, 0.0)
+            level = water_level.get(cls_id, 0.0)
             name  = _WATER_LABEL.get(cls_id, "Unknown")
             result_label = f"water {name} (cls{cls_id})"
             logger.debug(f"[YOLOXMeasurer] water | cls_id={cls_id} → {level}%")
@@ -160,7 +171,7 @@ class YOLOXMeasurer(BaseMeasurer):
 
         # ── Food ──────────────────────────────────────────────────────
         if self.target == "food":
-            level = _FOOD_LEVEL.get(cls_id, 0.0)
+            level = food_level.get(cls_id, 0.0)
             name  = _FOOD_LABEL.get(cls_id, "Unknown")
             result_label = f"food {name} (cls{cls_id})"
             logger.debug(f"[YOLOXMeasurer] food | cls_id={cls_id} → {level}%")
