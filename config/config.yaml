@@ -1,18 +1,35 @@
-# config.yaml
+# ============================================================
+# config/config.yaml — Vivarium Monitoring Pipeline
+#
+# Main configuration file. Loaded at startup by core/config_loader.py.
+# Supports ${ENV_VAR} and ${ENV_VAR:-default} substitution from .env.
+# To override settings for a specific environment, create a sibling file
+# named config.local.yaml or config.cloud.yaml — it will be deep-merged
+# on top of this file automatically.
+# ============================================================
 
+# ── App identity ──────────────────────────────────────────────────────────────
+# Controls the app name shown in FastAPI docs/health, log output, and env-specific
+# config file selection (e.g. env: local → loads config.local.yaml if present).
 app:
   name: vivarium-monitor
-  env: local
-  log_level: DEBUG
+  env: local                   # local | cloud
+  log_level: DEBUG             # DEBUG | INFO | WARNING | ERROR
 
+# ── Logging ───────────────────────────────────────────────────────────────────
+# sink: stdout → logs to console (default, good for Docker / local dev)
+# sink: file   → logs to file_path (rotated by size, retained by day count)
+# sink: loki   → ships to a Grafana Loki instance (requires LOKI_URL in .env)
 logging:
-  format: json
   sink: stdout
   file_path: ./logs/vivarium.log
-  pipeline_log_path: ./logs/pipeline_events.jsonl
+  pipeline_log_path: ./logs/pipeline_events.jsonl  # per-run JSONL audit trail
   rotate_mb: 10
   retain_days: 7
 
+# ── Pipeline stages ───────────────────────────────────────────────────────────
+# Defines the ordered stages the orchestrator runs for every image.
+# Do not reorder unless you also update pipeline/orchestrator.py.
 pipeline:
   stages:
     - preprocessor
@@ -20,6 +37,9 @@ pipeline:
     - measurers
     - aggregator
 
+# ── Detection targets ─────────────────────────────────────────────────────────
+# Controls which targets the pipeline measures and stores results for.
+# Remove a target here to skip it entirely without touching any other code.
 targets:
   enabled:
     - water
@@ -27,115 +47,85 @@ targets:
     - mouse
     - bedding
 
+# ── Input source ──────────────────────────────────────────────────────────────
+# source: api_upload → images arrive via POST /analyze (default)
+# source: s3         → images are pulled from S3 via POST /analyze/s3
+# folder_watch_* is reserved for a future folder-polling mode.
 input:
   source: api_upload
-  folder_watch_path: ./incoming
-  folder_watch_interval_seconds: 30
-  webhook_secret: null
   max_image_size_mb: 10
   allowed_formats: [jpg, jpeg, png, webp]
 
 # ── Preprocessor ──────────────────────────────────────────────────────────────
+# Runs before detection. Resizes, optionally rejects blurry frames,
+# and applies CLAHE contrast normalisation for consistent lighting.
 preprocessor:
-  resize_to: [640, 640]
-  blur_threshold: 40
+  resize_to: [640, 640]          # resize all input images to this before detection
+  blur_threshold: 40             # frames with Laplacian variance below this are rejected
   normalize: true
-  save_preprocessed: false
+  save_preprocessed: false       # set true to write preprocessed frames to disk for debugging
   brightness_balance: true
-  clahe_clip_limit: 2.0
+  clahe_clip_limit: 2.0          # CLAHE contrast limit — raise for darker environments
   clahe_tile_grid: 8
 
 # ── Detector ──────────────────────────────────────────────────────────────────
-# Switch between yolox / yolov8 / yolov8world by changing engine below.
-# All other pipeline code (measurers, orchestrator, DB, webhook) adapts automatically.
-
+# engine: yolox — custom-trained YOLOX model (current, active)
+# Changing engine here automatically switches the entire detection + measurer
+# stack — no other code changes needed (factory pattern).
 detector:
-  engine: yolox                          # <-- change to yolov8 / yolov8world to switch back
+  engine: yolox
   model_path: ./weights/yolox_vivarium.pth
-  device: cpu
-  min_confidence: 0.10
+  device: cpu                    # cpu | cuda:0
+  min_confidence: 0.10           # detections below this score are discarded
 
-  # YOLOX-specific config (only read when engine: yolox)
+  # YOLOX config — only read when engine: yolox
   yolox:
-    num_classes: 13
-    input_size: [416, 416]               # [h, w] — must match your training exp
-    exp_file: ./weights/yolox_vivarium_tiny.py
+    num_classes: 13              # must match the trained checkpoint
+    input_size: [416, 416]       # [h, w] — must match yolox_vivarium_tiny.py exp
+    exp_file: ./exps/yolox_vivarium_tiny.py
     nms_iou: 0.45
-
-  # YOLOv8 closed-vocabulary config (only read when engine: yolov8)
-  yolov8:
-    class_map:
-      water: 0
-      food: 1
-      mouse: 2
-    nms_iou: 0.45
-    agnostic_nms: true
-
-  # YOLOv8-World open-vocabulary config (only read when engine: yolov8world)
-  prompts:
-    water: "clear glass jar with water inside sitting on wire rack"
-    food:  "small ceramic bowl with food pellets on wire rack"
-    mouse: "small rodent mouse animal"
 
 # ── Measurers ─────────────────────────────────────────────────────────────────
-# When engine: yolox above, all four targets use yolox_class.
-# yolox_class decodes level/condition from the YOLOX class ID — no second model.
-# To switch a single target back to PSPNet/classifier, just change its engine here.
-
+# engine: yolox_class — reads level/condition directly from the YOLOX class ID.
+# No second model is needed. Class → level mapping is in yolox_class_levels below.
 measurers:
   water:
-    engine: yolox_class                  # cls1=Critical(7.5%) cls2=Low(25%) cls3=OK(57.5%) cls4=Full(90%)
+    engine: yolox_class          # cls1=Critical cls2=Low cls3=OK cls4=Full
     min_confidence: 0.05
 
   food:
-    engine: yolox_class                  # cls5=Critical(7.5%) cls6=Low(25%) cls7=OK(57.5%) cls8=Full(90%)
+    engine: yolox_class          # cls5=Critical cls6=Low cls7=OK cls8=Full
     min_confidence: 0.20
 
   mouse:
-    engine: yolox_class                  # cls0 → present=True
+    engine: yolox_class          # cls0 → present=True
     min_confidence: 0.35
 
   bedding:
-    engine: yolox_class                  # cls9=WORST cls10=BAD cls11=OK cls12=PERFECT
+    engine: yolox_class          # cls9=WORST cls10=BAD cls11=OK cls12=PERFECT
     min_confidence: 0.20
 
-  # ── Kept for reference — swap engine back if needed ──────────────────────
-  # water:
-  #   engine: fcn_psp
-  #   model_path: ./weights/water_pspnet.pt
-  #   device: cpu
-  #   input_size: 473
-  #   min_confidence: 0.30
-  #   min_liquid_confidence: 0.5
-  #   missing_area_threshold: 0.005
-  #   missing_variance_threshold: 8.0
-
-  # food:
-  #   engine: classifier
-  #   model_path: ./weights/food_classifier.onnx
-  #   min_confidence: 0.30
-  #   labels: ["empty", "low", "adequate", "full"]
-  #   level_map:
-  #     0: 0.0
-  #     1: 25.0
-  #     2: 75.0
-  #     3: 100.0
-
-  # mouse:
-  #   engine: detection_presence
-  #   min_confidence: 0.45
-
+# ── Annotator ─────────────────────────────────────────────────────────────────
+# Draws bounding boxes and labels on the image after detection.
+# Annotated images are saved to preview_dir for review.
 annotator:
   enabled: true
   engine: opencv
   preview_dir: outputs/annotated
 
+# ── Mouse stationary tracker ──────────────────────────────────────────────────
+# Detects when the mouse hasn't moved across consecutive frames.
+# Uses IoU overlap between bounding boxes. Fires a warning after
+# consecutive_count frames of overlap above iou_threshold.
 mouse_stationary:
   enabled: true
   iou_threshold: 0.70
   consecutive_count: 2
   log_file: ./logs/mouse_positions.jsonl
 
+# ── Level label bands ─────────────────────────────────────────────────────────
+# Maps a numeric percentage to a human-readable label.
+# Used by core/level_labeler.py when building the API response.
 level_labels:
   water:
     - max: 20
@@ -156,60 +146,87 @@ level_labels:
     - max: 100
       label: "Full"
 
-# ── YOLOX class → percentage mapping ───────────────────────────────────────
-# Change these to adjust what percentage each class ID maps to.
-# Must match training class boundaries in yolox_vivarium_tiny.py.
+# ── YOLOX class ID → percentage mapping ──────────────────────────────────────
+# Defines what numeric percentage each YOLOX class ID represents.
+# Must stay in sync with the class order used during training
+# (defined in yolox_vivarium_tiny.py).
 yolox_class_levels:
   water:
-    1: 10      # water_critical  (0–15%  midpoint)
-    2: 25.0     # water_low       (15–35% midpoint)
-    3: 65     # water_ok        (35–80% midpoint)
-    4: 90.0     # water_full      (80–100% midpoint)
+    1: 10.0    # water_critical  (0–15%  midpoint)
+    2: 25.0    # water_low       (15–35% midpoint)
+    3: 65.0    # water_ok        (35–80% midpoint)
+    4: 90.0    # water_full      (80–100% midpoint)
   food:
-    5: 7.5      # food_critical   (0–15%  midpoint)
-    6: 25.0     # food_low        (15–35% midpoint)
-    7: 57.5     # food_ok         (35–80% midpoint)
-    8: 90.0     # food_full       (80–100% midpoint)
+    5: 7.5     # food_critical   (0–15%  midpoint)
+    6: 25.0    # food_low        (15–35% midpoint)
+    7: 57.5    # food_ok         (35–80% midpoint)
+    8: 90.0    # food_full       (80–100% midpoint)
 
+# ── Frame deduplication ───────────────────────────────────────────────────────
+# Skips processing if an identical (or near-identical) frame was seen recently.
+# Uses perceptual hashing (phash). Increase phash_distance_threshold to be
+# more aggressive about skipping similar-but-not-identical frames.
 deduplication:
   enabled: true
   strategy: phash
-  cache_size: 64
-  ttl_seconds: 300
-  phash_distance_threshold: 4
+  cache_size: 64               # max frames held in the in-memory hash cache
+  ttl_seconds: 300             # how long a hash stays cached before expiring
+  phash_distance_threshold: 4  # hamming distance; 0=exact only, higher=fuzzier
 
+# ── Task queue ────────────────────────────────────────────────────────────────
+# Controls the async worker pool that processes uploaded images.
+# workers: number of concurrent pipeline runs
+# maxsize: max images queued before the API returns 429
 queue:
   workers: 4
   maxsize: 100
 
+# ── Database ──────────────────────────────────────────────────────────────────
+# SQLite by default (zero-config, fine for local/single-node use).
+# Switch to PostgreSQL by changing the URL and providing POSTGRES_* vars in .env:
+#   url: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}
 database:
   url: sqlite+aiosqlite:///./vivarium.db
 
+# ── Alerts ────────────────────────────────────────────────────────────────────
+# When enabled, writes a row to alert_log whenever water or food drops
+# below the low or empty threshold. Does not send notifications — pair
+# with the webhook block below for external delivery.
 alerts:
   enabled: false
   thresholds:
     water:
-      low: 20.0
-      empty: 5.0
+      low: 20.0    # % — triggers LOW alert
+      empty: 5.0   # % — triggers EMPTY alert
     food:
       low: 20.0
       empty: 5.0
 
+# ── AWS S3 ────────────────────────────────────────────────────────────────────
+# Used by the /analyze/s3 route to pull input images from S3.
+# Credentials come from environment (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY)
+# or from the standard AWS credential chain (IAM role, ~/.aws/credentials).
 s3:
   enabled: false
   input_prefix: vivarium/input/
   output_prefix: vivarium/output/
   region: us-east-1
-  bucket: test-bucket
-  presigned_url_expiry: 900
+  bucket: ""                    # override with your actual bucket name
+  presigned_url_expiry: 900     # seconds — for generating download links
 
+# ── Webhook ───────────────────────────────────────────────────────────────────
+# POST the full pipeline result JSON to one or more URLs after each run.
+# Payload includes water/food/mouse/bedding readings and any fired alerts.
+# Set secret to sign requests with HMAC-SHA256 (X-Vivarium-Signature header).
 webhook:
   enabled: false
-  secret: ""
+  secret: ""                    # leave blank to skip request signing
   timeout_seconds: 5
-  urls:
-    - https://webhook.site/f3c8ea04-1ccf-4c21-a579-2f6bafeb7720
+  urls: []                      # e.g. ["https://your-n8n-instance/webhook/vivarium"]
 
+# ── API ───────────────────────────────────────────────────────────────────────
+# api_key is injected from the API_KEY environment variable.
+# cors_origins: ["*"] is fine for local dev; restrict to your domain in production.
 api:
   host: 0.0.0.0
   port: 8000

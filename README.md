@@ -5,11 +5,11 @@ A complete, production-ready computer vision pipeline built with FastAPI and the
 ## Features
 
 - **Modular Architecture**: Every component (Detectors, Measurers, Notifiers, Storage) is swappable via `config.yaml` with zero code changes.
-- **State-of-the-art CV**: Supports YOLOv8-World and Grounding DINO for zero-shot object detection.
-- **Multiple Measurers**: Estimate levels using zero-shot CLIP, OpenCV edge detection, or custom classifiers.
+- **YOLOX Detection**: Uses [YOLOX](https://github.com/Megvii-BaseDetection/YOLOX) (installed from source) for object detection.
+- **Multiple Measurers**: Estimate levels using OpenCV edge detection or custom ONNX classifiers.
 - **Asynchronous**: Built on FastAPI, asyncpg, and SQLAlchemy Async for high concurrency.
 - **Alerting Engine**: Configurable thresholds and cooldowns to trigger Telegram, Email, or Webhook notifications.
-- **Storage Options**: Save pipeline results to PostgreSQL, and images to Local Disk, AWS S3, or Google Cloud Storage.
+- **Storage Options**: Save pipeline results to PostgreSQL, and images to Local Disk or AWS S3.
 
 ## Setup Instructions
 
@@ -17,6 +17,7 @@ A complete, production-ready computer vision pipeline built with FastAPI and the
 
 - Python 3.11+
 - PostgreSQL 14+
+- Git (to install YOLOX from source)
 
 ### 2. Installation
 
@@ -26,6 +27,15 @@ Clone the repository and set up a virtual environment:
 python -m venv venv
 source venv/bin/activate  # On Windows use: venv\Scripts\activate
 pip install -r requirements.txt
+```
+
+#### Install YOLOX from source
+
+YOLOX is not available on PyPI and must be installed manually:
+
+```bash
+git clone https://github.com/Megvii-BaseDetection/YOLOX.git
+cd YOLOX && pip install -e . --no-deps
 ```
 
 ### 3. Environment Variables
@@ -48,7 +58,7 @@ psql -U your_postgres_user -d your_database -f migrations/001_initial.sql
 ## How to Run Locally
 
 You can override settings for local development by editing `config/config.local.yaml`.
-Make sure you have downloaded any required model weights (e.g., YOLOv8-World `.pt` files) into `models/weights/`.
+Make sure you have downloaded the required YOLOX model weights into `weights/`.
 
 Run the application using `uvicorn`:
 
@@ -79,24 +89,7 @@ curl -X GET "http://localhost:8000/results?limit=10" \
 
 ## Swapping Engines via Config
 
-Because of the strict factory pattern, you can switch the backend engine for any module just by changing a string in `config/config.yaml`.
-
-**Example: Switching from YOLOv8-World to Grounding DINO for detection:**
-
-In `config/config.yaml`, change:
-
-```yaml
-detector:
-  engine: yolov8world
-  # ...
-```
-To:
-```yaml
-detector:
-  engine: groundingdino
-  # ...
-```
-Restart the server, and the pipeline will automatically load and use the `GroundingDINODetector` implementation instead.
+Because of the strict factory pattern, you can switch the backend engine for any module just by changing a string in `config/config.yaml` and restarting the server.
 
 ## Adding a New Engine Implementation
 
@@ -111,7 +104,6 @@ To add a new Image Store (for example, Azure Blob Storage):
    _IMAGE_STORE_REGISTRY = {
        "local": "pipeline.storage.image_store.local.LocalImageStore",
        "s3": "pipeline.storage.image_store.s3.S3ImageStore",
-       "gcs": "pipeline.storage.image_store.gcs.GCSImageStore",
        "azure": "pipeline.storage.image_store.azure.AzureImageStore", # <-- New!
    }
    ```
