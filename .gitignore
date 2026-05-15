@@ -50,3 +50,4 @@ weights/*.pth
 weights/*.onnx
 weights/*.bin
 # NOTE: weights/*.py (exp files) are intentionally tracked
+dataset
