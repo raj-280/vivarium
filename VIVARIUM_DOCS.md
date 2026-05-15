@@ -68,35 +68,59 @@ vivarium/
 ├── pipeline/                   # All CV logic
 │   ├── orchestrator.py         # Master coordinator — runs all stages in order
 │   ├── preprocessor/
-│   │   ├── image_validator.py  # Format, size, corruption checks
+│   │   ├── image_validator.py  # Format, size, blur checks
 │   │   └── resizer.py          # Resize + optional CLAHE brightness normalisation
 │   ├── detectors/
 │   │   ├── base.py             # BaseDetector ABC
 │   │   ├── factory.py          # DetectorFactory — selects engine from config
-│   │   ├── yolov8world.py      # YOLOv8-World open-vocabulary detector
-│   │   └── yolov8.py           # Standard YOLOv8 closed-vocabulary detector
+│   │   ├── yolox_detector.py   # YOLOX 13-class detector (ACTIVE default)
+│   │   ├── yolov8world.py      # YOLOv8-World open-vocabulary detector (switchable)
+│   │   └── yolov8.py           # Standard YOLOv8 closed-vocabulary detector (switchable)
 │   ├── measurers/
 │   │   ├── base.py             # BaseMeasurer ABC
 │   │   ├── factory.py          # MeasurerFactory — selects engine per target from config
-│   │   ├── opencv_water_measurer.py
-│   │   ├── opencv_food_measurer.py
-│   │   ├── unet_measurer.py
-│   │   ├── pspnet_measurer.py
-│   │   ├── classifier.py
-│   │   └── detection_presence_measurer.py
+│   │   ├── yolox_measurer.py   # Decodes level from YOLOX class ID — no model needed (ACTIVE default)
+│   │   ├── opencv_water_measurer.py  # Water level via edge/contour detection
+│   │   ├── opencv_food_measurer.py   # Food level via colour/region analysis
+│   │   ├── unet_measurer.py          # UNet segmentation (water + food)
+│   │   ├── pspnet_measurer.py        # PSPNet segmentation (requires water_pspnet.pt)
+│   │   ├── classifier.py             # ONNX classifier model
+│   │   └── detection_presence_measurer.py  # Mouse: present if detector fired
 │   └── annotator/
 │       ├── base.py             # BaseAnnotator ABC
 │       ├── factory.py          # AnnotatorFactory
 │       └── opencv_annotator.py # Draws bounding boxes + labels on output image
 │
+├── ml_models/                  # PyTorch model architecture definitions
+│   ├── water_unet.py           # UNet architecture for water segmentation
+│   ├── food_unet.py            # UNet architecture for food segmentation
+│   └── pspnet_model.py         # PSPNet architecture for water segmentation
+│
 ├── config/
 │   └── config.yaml             # Master configuration (see Section 4)
 │
 ├── weights/                    # Model weight files (.pt, .onnx)
+│   ├── yolox_vivarium.pth      # YOLOX 13-class detector weights (38 MB, ACTIVE)
+│   ├── water_pspnet.pt         # PSPNet water segmentation weights (178 MB)
+│   ├── water_unet.pt           # UNet water segmentation weights (7.5 MB)
+│   ├── food_classifier.onnx    # ONNX food classifier weights (8.7 MB)
+│   └── water_classifier.onnx   # ONNX water classifier weights (8.7 MB)
+│
+├── train/                      # Training utilities
+│   └── scripts/
+│       ├── label.py            # Annotation/labelling helpers
+│       ├── augment.py          # Data augmentation scripts
+│       ├── split.py            # Train/val dataset split
+│       ├── verify.py           # Dataset verification
+│       ├── crop.py             # ROI cropping for training data
+│       └── count.py            # Class distribution counter
+│
+├── yolox_vivarium_tiny.py      # YOLOX experiment config (13-class, tiny variant)
 ├── outputs/                    # Annotated output images (persisted via Docker volume)
 ├── logs/                       # Application and pipeline event logs
-├── docs/                       # Additional documentation
+│   └── pipeline_events.jsonl   # Structured per-run JSONL audit trail
 │
+├── vivarium.db                 # SQLite database (auto-created, default)
 ├── Dockerfile
 ├── docker-compose.yml
 ├── requirements.txt
@@ -126,10 +150,11 @@ POST /analyze (image + cage_id)
   ├─ job_tracker.set_processing(request_id)
   ├─ orchestrator.run(image_bytes, filename, cage_id)
   │     ├─ Deduplication check
-  │     ├─ Image validation
+  │     ├─ Image validation (format, size, blur)
   │     ├─ Preprocessing (resize, CLAHE)
-  │     ├─ Detection (YOLOv8World / YOLOv8)
-  │     ├─ Measurement (per target: water, food, mouse)
+  │     ├─ Detection (YOLOX 13-class — default; YOLOv8World / YOLOv8 switchable)
+  │     ├─ Measurement (per target: water, food, mouse, bedding)
+  │     │     └─ YOLOX: no second model — level decoded from class ID in bbox label
   │     ├─ Confidence gate (UNDETERMINED if below threshold)
   │     ├─ Annotation (draw boxes on image, save to outputs/)
   │     ├─ Mouse stationary check (IoU across consecutive runs)

@@ -7,22 +7,28 @@ FROM python:3.11-slim
 
 # --- System dependencies ---
 # libgl1 and libglib2.0-0 are required by opencv-python at runtime
-# without these, cv2 import fails silently inside the container
+# git is required to clone YOLOX from source
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 \
     libglib2.0-0 \
     libgomp1 \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 # --- Working directory ---
 WORKDIR /app
 
 # --- Install Python dependencies ---
-# Copy requirements first so this layer is cached separately from code.
-# Docker only re-runs pip install when requirements.txt changes.
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir -r requirements.txt
+
+# --- Install YOLOX from source ---
+# PyPI yolox package is incomplete — must install from official repo
+RUN git clone https://github.com/Megvii-BaseDetection/YOLOX.git /tmp/YOLOX \
+    && cd /tmp/YOLOX \
+    && pip install -e . --no-deps \
+    && rm -rf /tmp/YOLOX/.git
 
 # --- Copy project files ---
 COPY api/        ./api/
@@ -32,10 +38,8 @@ COPY ml_models/  ./ml_models/
 COPY config/     ./config/
 COPY weights/    ./weights/
 
-# --- Outputs directory ---
-# Annotated images are saved here at runtime.
-# Mount this as a volume in docker-compose to persist outside the container.
-RUN mkdir -p /app/outputs/annotated
+# --- Outputs and logs directories ---
+RUN mkdir -p /app/outputs/annotated /app/logs
 
 # --- Expose API port ---
 EXPOSE 8000
